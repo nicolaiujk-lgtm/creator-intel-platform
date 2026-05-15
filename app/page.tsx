@@ -13,6 +13,7 @@ import {
   History,
   Languages,
   LayoutDashboard,
+  Loader2,
   MoreHorizontal,
   Search,
   Settings,
@@ -23,11 +24,14 @@ import {
   TrendingUp,
   Wand2
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Creator = {
   name: string;
   handle: string;
+  channelId: string;
+  channelUrl: string;
+  profileImage: string;
   platform: "YouTube";
   flag: string;
   region: string;
@@ -39,9 +43,16 @@ type Creator = {
   lastUpload: string;
   score: number;
   description: string;
-  trend: number[];
-  overlap: number;
-  audience: string;
+};
+
+type YouTubeCreatorResponse = {
+  channelTitle: string;
+  channelId: string;
+  profileImage: string;
+  subscriberCount: string;
+  description: string;
+  channelUrl: string;
+  averageViews?: string;
 };
 
 const navItems = [
@@ -53,81 +64,6 @@ const navItems = [
   { label: "设置", icon: Settings }
 ];
 
-const creators: Creator[] = [
-  {
-    name: "LunaPlay BR",
-    handle: "@lunaplaybr",
-    platform: "YouTube",
-    flag: "🇧🇷",
-    region: "巴西",
-    language: "葡萄牙语",
-    followers: "2.8M",
-    avgViews: "684K",
-    engagement: "7.9%",
-    tags: ["Roblox", "沙盒", "移动游戏"],
-    lastUpload: "3小时前",
-    score: 94,
-    description: "高增长 Roblox YouTube 博主，在巴西与葡语市场拥有高密度青少年受众。",
-    trend: [42, 54, 49, 68, 74, 83],
-    overlap: 78,
-    audience: "13-20"
-  },
-  {
-    name: "Mika Quest",
-    handle: "@mikaquest",
-    platform: "YouTube",
-    flag: "🇺🇸",
-    region: "美国",
-    language: "英语",
-    followers: "1.4M",
-    avgViews: "312K",
-    engagement: "5.8%",
-    tags: ["二次元游戏", "MMORPG", "模拟经营"],
-    lastUpload: "11小时前",
-    score: 89,
-    description: "专注二次元 RPG 深度评测、上线攻略与长线内容运营的 YouTube 长视频博主。",
-    trend: [36, 45, 58, 61, 59, 70],
-    overlap: 66,
-    audience: "18-27"
-  },
-  {
-    name: "Falcon MENA",
-    handle: "@falconmena",
-    platform: "YouTube",
-    flag: "🇦🇪",
-    region: "中东",
-    language: "阿拉伯语",
-    followers: "780K",
-    avgViews: "96K",
-    engagement: "9.4%",
-    tags: ["移动游戏", "MMORPG", "沙盒"],
-    lastUpload: "1天前",
-    score: 87,
-    description: "阿语游戏 YouTube 博主，评论区互动黏性强，并具备移动游戏上线推广经验。",
-    trend: [31, 44, 46, 53, 64, 69],
-    overlap: 71,
-    audience: "16-24"
-  },
-  {
-    name: "Nara BuildLab",
-    handle: "@narabuildlab",
-    platform: "YouTube",
-    flag: "🇮🇩",
-    region: "印度尼西亚",
-    language: "英语",
-    followers: "940K",
-    avgViews: "188K",
-    engagement: "6.6%",
-    tags: ["模拟经营", "沙盒", "Roblox"],
-    lastUpload: "6小时前",
-    score: 84,
-    description: "设计感突出的 YouTube 建造类内容博主，覆盖模拟经营、沙盒与玩家创作世界。",
-    trend: [28, 36, 48, 46, 58, 62],
-    overlap: 63,
-    audience: "15-23"
-  }
-];
-
 const suggestions = ["Roblox 巴西", "二次元移动游戏", "阿语游戏博主"];
 const trendingTags = ["Roblox", "移动游戏", "MMORPG", "沙盒", "模拟经营", "二次元游戏"];
 const filters = {
@@ -135,39 +71,125 @@ const filters = {
   语言: ["葡萄牙语", "阿拉伯语", "英语", "西班牙语"]
 };
 
+function inferTags(query: string, description: string) {
+  const source = `${query} ${description}`.toLowerCase();
+  const tags = [
+    ["Roblox", "roblox"],
+    ["移动游戏", "mobile"],
+    ["MMORPG", "mmorpg"],
+    ["沙盒", "sandbox"],
+    ["模拟经营", "simulation"],
+    ["二次元游戏", "anime"]
+  ]
+    .filter(([, keyword]) => source.includes(keyword))
+    .map(([tag]) => tag);
+
+  return tags.length > 0 ? tags.slice(0, 3) : ["YouTube", "游戏内容", "创作者"];
+}
+
+function normalizeCreator(item: YouTubeCreatorResponse, query: string, index: number): Creator {
+  return {
+    name: item.channelTitle,
+    handle: `频道 ID：${item.channelId}`,
+    channelId: item.channelId,
+    channelUrl: item.channelUrl,
+    profileImage: item.profileImage,
+    platform: "YouTube",
+    flag: "🌐",
+    region: "YouTube",
+    language: "自动识别",
+    followers: item.subscriberCount,
+    avgViews: item.averageViews ?? "暂未提供",
+    engagement: "需接入分析",
+    tags: inferTags(query, item.description),
+    lastUpload: "来自 YouTube API",
+    score: Math.max(82, 96 - index * 3),
+    description: item.description || "该频道暂未提供简介，可进入 YouTube 主页查看完整内容与近期视频。"
+  };
+}
+
 export default function Home() {
   const [query, setQuery] = useState("Roblox 巴西");
-  const [selectedCreator, setSelectedCreator] = useState<Creator>(creators[0]);
+  const [creators, setCreators] = useState<Creator[]>([]);
+  const [selectedCreator, setSelectedCreator] = useState<Creator | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
 
-  const filteredCreators = useMemo(() => {
-    const normalized = query.toLowerCase();
-    if (!normalized.trim()) return creators;
+  const searchCreators = useCallback(async (nextQuery: string) => {
+    const trimmedQuery = nextQuery.trim();
+    if (!trimmedQuery) {
+      setCreators([]);
+      setSelectedCreator(null);
+      setHasSearched(true);
+      return;
+    }
 
-    return creators.filter((creator) =>
-      [
-        creator.name,
-        creator.handle,
-        creator.platform,
-        creator.region,
-        creator.language,
-        ...creator.tags
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized.split(" ")[0])
-    );
-  }, [query]);
+    setIsLoading(true);
+    setError("");
+    setHasSearched(true);
+
+    try {
+      const response = await fetch(`/api/youtube-search?q=${encodeURIComponent(trimmedQuery)}`);
+      const data = (await response.json()) as {
+        creators?: YouTubeCreatorResponse[];
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "YouTube 检索失败，请稍后重试。");
+      }
+
+      const normalizedCreators = (data.creators ?? []).map((item, index) =>
+        normalizeCreator(item, trimmedQuery, index)
+      );
+      setCreators(normalizedCreators);
+      setSelectedCreator(normalizedCreators[0] ?? null);
+    } catch (searchError) {
+      setCreators([]);
+      setSelectedCreator(null);
+      setError(searchError instanceof Error ? searchError.message : "YouTube 检索失败，请稍后重试。");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    searchCreators("Roblox 巴西");
+  }, [searchCreators]);
+
+  const resultSummary = useMemo(() => {
+    if (isLoading) return "正在从 YouTube API 获取频道数据";
+    if (error) return "检索遇到问题";
+    if (creators.length === 0 && hasSearched) return "暂无匹配频道";
+    return `${creators.length} 个 YouTube 频道结果`;
+  }, [creators.length, error, hasSearched, isLoading]);
 
   return (
     <main className="min-h-screen lg:pl-72">
       <Sidebar />
       <section className="mx-auto flex w-full max-w-[1480px] flex-col gap-8 px-4 py-4 sm:px-6 lg:px-8 lg:py-8">
-        <Hero query={query} setQuery={setQuery} setSelectedCreator={setSelectedCreator} />
+        <Hero
+          creators={creators}
+          isLoading={isLoading}
+          query={query}
+          resultSummary={resultSummary}
+          searchCreators={searchCreators}
+          setQuery={setQuery}
+          setSelectedCreator={setSelectedCreator}
+        />
         <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
           <FilterPanel />
-          <SearchResults creators={filteredCreators} setSelectedCreator={setSelectedCreator} />
+          <SearchResults
+            creators={creators}
+            error={error}
+            isLoading={isLoading}
+            hasSearched={hasSearched}
+            searchCreators={() => searchCreators(query)}
+            setSelectedCreator={setSelectedCreator}
+          />
         </div>
-        <RecommendationPanel creator={selectedCreator} />
+        <RecommendationPanel creator={selectedCreator} creators={creators} />
       </section>
     </main>
   );
@@ -212,7 +234,7 @@ function Sidebar() {
           <ShieldCheck className="size-5 text-success" />
           <div>
             <p className="text-sm font-semibold text-white">上线可用数据</p>
-            <p className="mt-1 text-xs leading-5 text-slate-400">博主信号每 24 小时自动同步更新。</p>
+            <p className="mt-1 text-xs leading-5 text-slate-400">频道数据通过 YouTube Data API v3 获取。</p>
           </div>
         </div>
       </div>
@@ -221,14 +243,27 @@ function Sidebar() {
 }
 
 function Hero({
+  creators,
+  isLoading,
   query,
+  resultSummary,
+  searchCreators,
   setQuery,
   setSelectedCreator
 }: {
+  creators: Creator[];
+  isLoading: boolean;
   query: string;
+  resultSummary: string;
+  searchCreators: (nextQuery: string) => void;
   setQuery: (value: string) => void;
   setSelectedCreator: (creator: Creator) => void;
 }) {
+  const pickQuery = (item: string) => {
+    setQuery(item);
+    searchCreators(item);
+  };
+
   return (
     <section className="overflow-hidden rounded-none pt-20 lg:pt-0">
       <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
@@ -239,7 +274,7 @@ function Hero({
             </span>
             <span className="flex items-center gap-2 text-sm font-medium text-slate-500">
               <Activity className="size-4 text-success" />
-              已索引 43K 游戏博主
+              YouTube API 实时频道检索
             </span>
           </div>
           <h1 className="mt-6 max-w-3xl text-4xl font-semibold tracking-normal text-slate-950 sm:text-5xl">
@@ -247,7 +282,13 @@ function Hero({
           </h1>
           <p className="mt-4 text-lg text-slate-600">通过搜索、标签筛选和相似推荐，快速发现高匹配度博主。</p>
 
-          <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-2 shadow-inner">
+          <form
+            className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-2 shadow-inner"
+            onSubmit={(event) => {
+              event.preventDefault();
+              searchCreators(query);
+            }}
+          >
             <div className="flex flex-col gap-3 sm:flex-row">
               <label className="flex min-h-14 flex-1 items-center gap-3 rounded-md bg-white px-4 shadow-sm">
                 <Search className="size-5 text-slate-400" />
@@ -258,41 +299,53 @@ function Hero({
                   className="w-full border-0 bg-transparent text-base font-medium text-slate-900 outline-none placeholder:text-slate-400"
                 />
               </label>
-              <button className="flex min-h-14 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-secondary px-6 font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:translate-y-[-1px]">
-                <SlidersHorizontal className="size-5" />
-                检索博主
+              <button
+                className="flex min-h-14 items-center justify-center gap-2 rounded-md bg-gradient-to-r from-primary to-secondary px-6 font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={isLoading}
+                type="submit"
+              >
+                {isLoading ? <Loader2 className="size-5 animate-spin" /> : <SlidersHorizontal className="size-5" />}
+                {isLoading ? "检索中" : "检索博主"}
               </button>
             </div>
-          </div>
+          </form>
+
+          <p className="mt-3 text-sm font-medium text-slate-500">{resultSummary}</p>
 
           <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <SuggestionGroup title="搜索建议" items={suggestions} onPick={setQuery} />
-            <SuggestionGroup title="热门标签" items={trendingTags} onPick={setQuery} colorful />
+            <SuggestionGroup title="搜索建议" items={suggestions} onPick={pickQuery} />
+            <SuggestionGroup title="热门标签" items={trendingTags} onPick={pickQuery} colorful />
           </div>
         </div>
 
         <div className="rounded-lg border border-white/10 bg-white/[0.98] p-6 shadow-card">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-950">最近查看的博主</h2>
+            <h2 className="text-base font-semibold text-slate-950">本次检索频道</h2>
             <ChevronRight className="size-5 text-slate-400" />
           </div>
           <div className="mt-5 space-y-3">
             {creators.slice(0, 3).map((creator) => (
               <button
-                key={creator.handle}
+                key={creator.channelId}
                 onClick={() => setSelectedCreator(creator)}
                 className="group flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-card"
               >
                 <Avatar creator={creator} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-950">{creator.name}</p>
-                  <p className="text-xs text-slate-500">{creator.platform} · {creator.region}</p>
+                  <p className="text-xs text-slate-500">{creator.platform} · {creator.followers}</p>
                 </div>
                 <span className="rounded-md bg-success/10 px-2 py-1 text-xs font-semibold text-success">
                   {creator.score}%
                 </span>
               </button>
             ))}
+
+            {creators.length === 0 && (
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-500">
+                输入关键词后会在这里显示最近的 YouTube 频道结果。
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -423,9 +476,17 @@ function RangeBlock({ label, value }: { label: string; value: string }) {
 
 function SearchResults({
   creators,
+  error,
+  hasSearched,
+  isLoading,
+  searchCreators,
   setSelectedCreator
 }: {
   creators: Creator[];
+  error: string;
+  hasSearched: boolean;
+  isLoading: boolean;
+  searchCreators: () => void;
   setSelectedCreator: (creator: Creator) => void;
 }) {
   return (
@@ -433,10 +494,10 @@ function SearchResults({
       <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">博主检索</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">按上线匹配度排序的博主结果</h2>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">YouTube 频道实时检索结果</h2>
         </div>
         <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-100 p-1">
-          {["匹配度", "触达量", "活跃度"].map((item, index) => (
+          {["匹配度", "订阅量", "频道质量"].map((item, index) => (
             <button
               key={item}
               className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
@@ -450,11 +511,60 @@ function SearchResults({
       </div>
 
       <div className="mt-5 grid gap-4">
-        {creators.map((creator) => (
-          <CreatorCard key={creator.handle} creator={creator} setSelectedCreator={setSelectedCreator} />
-        ))}
+        {isLoading && <LoadingState />}
+        {!isLoading && error && <ErrorState error={error} onRetry={searchCreators} />}
+        {!isLoading && !error && hasSearched && creators.length === 0 && <EmptyState />}
+        {!isLoading &&
+          !error &&
+          creators.map((creator) => (
+            <CreatorCard key={creator.channelId} creator={creator} setSelectedCreator={setSelectedCreator} />
+          ))}
       </div>
     </section>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="grid gap-4">
+      {[1, 2, 3].map((item) => (
+        <div key={item} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex animate-pulse gap-4">
+            <div className="size-16 rounded-lg bg-slate-100" />
+            <div className="flex-1 space-y-3">
+              <div className="h-4 w-1/3 rounded bg-slate-100" />
+              <div className="h-3 w-2/3 rounded bg-slate-100" />
+              <div className="h-3 w-1/2 rounded bg-slate-100" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+      <Search className="mx-auto size-9 text-slate-300" />
+      <h3 className="mt-4 text-lg font-semibold text-slate-950">没有找到匹配的 YouTube 频道</h3>
+      <p className="mt-2 text-sm text-slate-500">换一个游戏、地区或内容关键词再试一次。</p>
+    </div>
+  );
+}
+
+function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-lg border border-red-100 bg-red-50 p-5">
+      <h3 className="font-semibold text-red-700">YouTube API 请求失败</h3>
+      <p className="mt-2 text-sm leading-6 text-red-600">{error}</p>
+      <button
+        onClick={onRetry}
+        className="mt-4 rounded-md bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition hover:-translate-y-0.5"
+      >
+        重新检索
+      </button>
+    </div>
   );
 }
 
@@ -480,8 +590,8 @@ function CreatorCard({
               <PlatformBadge platform={creator.platform} />
               <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">{creator.flag}</span>
             </div>
-            <p className="mt-1 text-sm font-medium text-slate-500">{creator.handle}</p>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{creator.description}</p>
+            <p className="mt-1 truncate text-sm font-medium text-slate-500">{creator.handle}</p>
+            <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-600">{creator.description}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {creator.tags.map((tag, index) => (
                 <button
@@ -509,16 +619,16 @@ function CreatorCard({
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-lg bg-slate-50 p-3">
-              <p className="text-xs font-medium text-slate-500">最近更新</p>
+              <p className="text-xs font-medium text-slate-500">数据来源</p>
               <p className="mt-1 text-sm font-semibold text-slate-950">{creator.lastUpload}</p>
             </div>
             <div className="rounded-lg bg-gradient-to-br from-indigo-50 to-blue-50 p-3">
-              <p className="text-xs font-medium text-slate-500">相似度</p>
+              <p className="text-xs font-medium text-slate-500">匹配度</p>
               <p className="mt-1 text-sm font-semibold text-primary">{creator.score}% 匹配</p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            <ActionButton label="查看主页" icon={BarChart3} />
+            <ActionButton label="查看主页" icon={BarChart3} onClick={() => window.open(creator.channelUrl, "_blank", "noopener,noreferrer")} />
             <ActionButton label="查找相似博主" icon={Wand2} primary onClick={() => setSelectedCreator(creator)} />
             <ActionButton label="收藏博主" icon={Bookmark} />
           </div>
@@ -528,8 +638,22 @@ function CreatorCard({
   );
 }
 
-function RecommendationPanel({ creator }: { creator: Creator }) {
-  const similar = creators.filter((item) => item.handle !== creator.handle);
+function RecommendationPanel({ creator, creators }: { creator: Creator | null; creators: Creator[] }) {
+  if (!creator || creators.length <= 1) {
+    return (
+      <section className="rounded-lg border border-white/10 bg-white p-5 shadow-card sm:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-primary">相似博主推荐</p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">等待 YouTube 检索结果</h2>
+          </div>
+          <p className="text-sm text-slate-500">检索后将展示同批次频道中的相似推荐。</p>
+        </div>
+      </section>
+    );
+  }
+
+  const similar = creators.filter((item) => item.channelId !== creator.channelId).slice(0, 3);
 
   return (
     <section className="rounded-lg border border-white/10 bg-white p-5 shadow-card sm:p-6">
@@ -538,13 +662,13 @@ function RecommendationPanel({ creator }: { creator: Creator }) {
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">相似博主推荐</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-950">与 {creator.name} 相近的 YouTube 博主</h2>
         </div>
-        <p className="text-sm text-slate-500">轻量推荐，便于快速查看主页。</p>
+        <p className="text-sm text-slate-500">基于当前关键词返回的频道结果快速推荐。</p>
       </div>
 
       <div className="thin-scrollbar mt-5 grid auto-cols-[minmax(260px,1fr)] grid-flow-col gap-4 overflow-x-auto pb-2 lg:grid-flow-row lg:grid-cols-3 lg:overflow-visible lg:pb-0">
         {similar.map((item) => (
           <motion.article
-            key={item.handle}
+            key={item.channelId}
             layout
             whileHover={{ y: -3 }}
             className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-200 hover:shadow-card"
@@ -573,7 +697,10 @@ function RecommendationPanel({ creator }: { creator: Creator }) {
               ))}
             </div>
 
-            <button className="mt-4 flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-indigo-200 hover:text-primary">
+            <button
+              onClick={() => window.open(item.channelUrl, "_blank", "noopener,noreferrer")}
+              className="mt-4 flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-indigo-200 hover:text-primary"
+            >
               <BarChart3 className="size-4" />
               查看主页
             </button>
@@ -591,12 +718,24 @@ function Avatar({ creator, large = false }: { creator: Creator; large?: boolean 
     .join("")
     .slice(0, 2);
 
+  if (creator.profileImage) {
+    return (
+      <img
+        alt={`${creator.name} 头像`}
+        className={`shrink-0 rounded-lg object-cover shadow-lg shadow-indigo-500/10 ${
+          large ? "size-20" : "size-12"
+        }`}
+        src={creator.profileImage}
+      />
+    );
+  }
+
   return (
     <div
       className={`grid shrink-0 place-items-center rounded-lg bg-gradient-to-br from-slate-900 via-primary to-secondary font-bold text-white shadow-lg shadow-indigo-500/20 ${
         large ? "size-20 text-xl" : "size-12 text-sm"
       }`}
-      aria-label={`${creator.name} profile picture`}
+      aria-label={`${creator.name} 头像`}
     >
       {initials}
     </div>
