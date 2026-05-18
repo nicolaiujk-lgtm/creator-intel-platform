@@ -11,10 +11,18 @@ type YouTubeChannelItem = {
   snippet?: {
     title?: string;
     description?: string;
+    country?: string;
+    defaultLanguage?: string;
     thumbnails?: {
       default?: { url?: string };
       medium?: { url?: string };
       high?: { url?: string };
+    };
+  };
+  brandingSettings?: {
+    channel?: {
+      country?: string;
+      defaultLanguage?: string;
     };
   };
   statistics?: {
@@ -23,6 +31,40 @@ type YouTubeChannelItem = {
     videoCount?: string;
     hiddenSubscriberCount?: boolean;
   };
+};
+
+const regionNames: Record<string, string> = {
+  BR: "巴西",
+  US: "美国",
+  ID: "印度尼西亚",
+  AE: "中东",
+  SA: "中东",
+  EG: "中东",
+  QA: "中东",
+  KW: "中东",
+  BH: "中东",
+  OM: "中东",
+  JO: "中东",
+  LB: "中东",
+  GB: "欧洲",
+  DE: "欧洲",
+  FR: "欧洲",
+  ES: "欧洲",
+  IT: "欧洲",
+  NL: "欧洲",
+  PL: "欧洲",
+  SE: "欧洲",
+  NO: "欧洲",
+  DK: "欧洲",
+  FI: "欧洲",
+  PT: "欧洲"
+};
+
+const languageNames: Record<string, string> = {
+  pt: "葡萄牙语",
+  ar: "阿拉伯语",
+  en: "英语",
+  es: "西班牙语"
 };
 
 function formatNumber(value?: string) {
@@ -34,6 +76,26 @@ function formatNumber(value?: string) {
     notation: "compact",
     maximumFractionDigits: 1
   }).format(number);
+}
+
+function getRegion(code?: string) {
+  const normalizedCode = code?.toUpperCase();
+  if (!normalizedCode) return { region: "未公开", regionCode: "" };
+
+  return {
+    region: regionNames[normalizedCode] ?? normalizedCode,
+    regionCode: normalizedCode
+  };
+}
+
+function getLanguage(code?: string) {
+  const normalizedCode = code?.split("-")[0]?.toLowerCase();
+  if (!normalizedCode) return { language: "未公开", languageCode: "" };
+
+  return {
+    language: languageNames[normalizedCode] ?? normalizedCode,
+    languageCode: normalizedCode
+  };
 }
 
 function getAverageViews(viewCount?: string, videoCount?: string) {
@@ -64,7 +126,7 @@ export async function GET(request: Request) {
     const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
     searchUrl.searchParams.set("part", "snippet");
     searchUrl.searchParams.set("type", "channel");
-    searchUrl.searchParams.set("maxResults", "10");
+    searchUrl.searchParams.set("maxResults", "25");
     searchUrl.searchParams.set("q", query);
     searchUrl.searchParams.set("key", apiKey);
 
@@ -90,7 +152,7 @@ export async function GET(request: Request) {
     }
 
     const channelsUrl = new URL("https://www.googleapis.com/youtube/v3/channels");
-    channelsUrl.searchParams.set("part", "snippet,statistics");
+    channelsUrl.searchParams.set("part", "snippet,statistics,brandingSettings");
     channelsUrl.searchParams.set("id", channelIds.join(","));
     channelsUrl.searchParams.set("key", apiKey);
 
@@ -108,9 +170,24 @@ export async function GET(request: Request) {
 
     const channelsData = (await channelsResponse.json()) as { items?: YouTubeChannelItem[] };
     const creators = (channelsData.items ?? []).map((channel) => {
+      const subscriberCountRaw = channel.statistics?.hiddenSubscriberCount
+        ? null
+        : Number(channel.statistics?.subscriberCount ?? 0);
       const subscriberCount = channel.statistics?.hiddenSubscriberCount
         ? "未公开"
         : formatNumber(channel.statistics?.subscriberCount);
+      const viewCount = Number(channel.statistics?.viewCount ?? 0);
+      const videoCount = Number(channel.statistics?.videoCount ?? 0);
+      const averageViewsRaw =
+        Number.isFinite(viewCount) && Number.isFinite(videoCount) && videoCount > 0
+          ? Math.round(viewCount / videoCount)
+          : null;
+      const { region, regionCode } = getRegion(
+        channel.snippet?.country ?? channel.brandingSettings?.channel?.country
+      );
+      const { language, languageCode } = getLanguage(
+        channel.snippet?.defaultLanguage ?? channel.brandingSettings?.channel?.defaultLanguage
+      );
 
       return {
         channelTitle: channel.snippet?.title ?? "未命名频道",
@@ -121,9 +198,15 @@ export async function GET(request: Request) {
           channel.snippet?.thumbnails?.default?.url ??
           "",
         subscriberCount,
+        subscriberCountRaw,
         description: channel.snippet?.description ?? "",
         channelUrl: `https://www.youtube.com/channel/${channel.id}`,
-        averageViews: getAverageViews(channel.statistics?.viewCount, channel.statistics?.videoCount)
+        averageViews: getAverageViews(channel.statistics?.viewCount, channel.statistics?.videoCount),
+        averageViewsRaw,
+        region,
+        regionCode,
+        language,
+        languageCode
       };
     });
 

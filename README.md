@@ -4,6 +4,14 @@
 
 ## 本地运行
 
+先创建 `.env.local`：
+
+```bash
+YOUTUBE_API_KEY=your_youtube_data_api_v3_key_here
+```
+
+该密钥用于 `app/api/youtube-search/route.ts` 调用 YouTube Data API v3。
+
 ```bash
 npm install
 npm run dev
@@ -31,6 +39,8 @@ npm run start
    - Install Command: `npm install`
    - Build Command: `npm run build`
    - Output Directory: `.next`
-5. 点击 `Deploy`。
+5. 在 Vercel 的 Environment Variables 中添加：
+   - `YOUTUBE_API_KEY`
+6. 点击 `Deploy`。
 
 Vercel 会使用 `app/page.tsx` 作为主页面进行构建和部署。

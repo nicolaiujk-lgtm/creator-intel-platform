@@ -35,9 +35,13 @@ type Creator = {
   platform: "YouTube";
   flag: string;
   region: string;
+  regionCode: string;
   language: string;
+  languageCode: string;
   followers: string;
+  followersCount: number | null;
   avgViews: string;
+  avgViewsCount: number | null;
   engagement: string;
   tags: string[];
   lastUpload: string;
@@ -50,9 +54,22 @@ type YouTubeCreatorResponse = {
   channelId: string;
   profileImage: string;
   subscriberCount: string;
+  subscriberCountRaw: number | null;
   description: string;
   channelUrl: string;
   averageViews?: string;
+  averageViewsRaw: number | null;
+  region: string;
+  regionCode: string;
+  language: string;
+  languageCode: string;
+};
+
+type FilterState = {
+  regions: string[];
+  languages: string[];
+  minFollowers: number;
+  minAverageViews: number;
 };
 
 const navItems = [
@@ -67,9 +84,33 @@ const navItems = [
 const suggestions = ["Roblox 巴西", "二次元移动游戏", "阿语游戏博主"];
 const trendingTags = ["Roblox", "移动游戏", "MMORPG", "沙盒", "模拟经营", "二次元游戏"];
 const filters = {
-  地区: ["巴西", "中东", "美国", "印度尼西亚", "欧洲"],
-  语言: ["葡萄牙语", "阿拉伯语", "英语", "西班牙语"]
+  地区: ["巴西", "美国", "欧洲"],
+  语言: ["葡萄牙语", "西班牙语", "英语"]
 };
+
+const defaultFilterState: FilterState = {
+  regions: [],
+  languages: [],
+  minFollowers: 10000,
+  minAverageViews: 50000
+};
+
+const regionCodeGroups: Record<string, string[]> = {
+  巴西: ["BR"],
+  美国: ["US"],
+  欧洲: ["GB", "DE", "FR", "ES", "IT", "NL", "PL", "SE", "NO", "DK", "FI", "PT"]
+};
+
+const languageCodeGroups: Record<string, string[]> = {
+  葡萄牙语: ["pt"],
+  西班牙语: ["es"],
+  英语: ["en"]
+};
+
+const compactNumberFormatter = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1
+});
 
 function inferTags(query: string, description: string) {
   const source = `${query} ${description}`.toLowerCase();
@@ -96,16 +137,44 @@ function normalizeCreator(item: YouTubeCreatorResponse, query: string, index: nu
     profileImage: item.profileImage,
     platform: "YouTube",
     flag: "🌐",
-    region: "YouTube",
-    language: "自动识别",
+    region: item.region,
+    regionCode: item.regionCode,
+    language: item.language,
+    languageCode: item.languageCode,
     followers: item.subscriberCount,
+    followersCount: item.subscriberCountRaw,
     avgViews: item.averageViews ?? "暂未提供",
+    avgViewsCount: item.averageViewsRaw,
     engagement: "需接入分析",
     tags: inferTags(query, item.description),
     lastUpload: "来自 YouTube API",
     score: Math.max(82, 96 - index * 3),
     description: item.description || "该频道暂未提供简介，可进入 YouTube 主页查看完整内容与近期视频。"
   };
+}
+
+function formatCompactNumber(value: number) {
+  return compactNumberFormatter.format(value);
+}
+
+function matchesSelectedGroup(value: string, selected: string[], groups: Record<string, string[]>) {
+  if (selected.length === 0) return true;
+  if (!value) return false;
+
+  return selected.some((item) => groups[item]?.includes(value));
+}
+
+function filterCreators(creators: Creator[], filterState: FilterState) {
+  return creators.filter((creator) => {
+    const matchesRegion = matchesSelectedGroup(creator.regionCode, filterState.regions, regionCodeGroups);
+    const matchesLanguage = matchesSelectedGroup(creator.languageCode, filterState.languages, languageCodeGroups);
+    const matchesFollowers =
+      typeof creator.followersCount === "number" && creator.followersCount >= filterState.minFollowers;
+    const matchesAverageViews =
+      typeof creator.avgViewsCount === "number" && creator.avgViewsCount >= filterState.minAverageViews;
+
+    return matchesRegion && matchesLanguage && matchesFollowers && matchesAverageViews;
+  });
 }
 
 export default function Home() {
@@ -115,6 +184,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
+  const [filterState, setFilterState] = useState<FilterState>(defaultFilterState);
 
   const searchCreators = useCallback(async (nextQuery: string) => {
     const trimmedQuery = nextQuery.trim();
@@ -158,19 +228,34 @@ export default function Home() {
     searchCreators("Roblox 巴西");
   }, [searchCreators]);
 
+  const filteredCreators = useMemo(() => filterCreators(creators, filterState), [creators, filterState]);
+
+  useEffect(() => {
+    setSelectedCreator((currentCreator) => {
+      if (currentCreator && filteredCreators.some((creator) => creator.channelId === currentCreator.channelId)) {
+        return currentCreator;
+      }
+
+      return filteredCreators[0] ?? null;
+    });
+  }, [filteredCreators]);
+
   const resultSummary = useMemo(() => {
     if (isLoading) return "正在从 YouTube API 获取频道数据";
     if (error) return "检索遇到问题";
     if (creators.length === 0 && hasSearched) return "暂无匹配频道";
+    if (filteredCreators.length !== creators.length) {
+      return `${filteredCreators.length} / ${creators.length} 个频道符合当前筛选`;
+    }
     return `${creators.length} 个 YouTube 频道结果`;
-  }, [creators.length, error, hasSearched, isLoading]);
+  }, [creators.length, error, filteredCreators.length, hasSearched, isLoading]);
 
   return (
     <main className="min-h-screen lg:pl-72">
       <Sidebar />
       <section className="mx-auto flex w-full max-w-[1480px] flex-col gap-8 px-4 py-4 sm:px-6 lg:px-8 lg:py-8">
         <Hero
-          creators={creators}
+          creators={filteredCreators}
           isLoading={isLoading}
           query={query}
           resultSummary={resultSummary}
@@ -179,17 +264,18 @@ export default function Home() {
           setSelectedCreator={setSelectedCreator}
         />
         <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
-          <FilterPanel />
+          <FilterPanel filterState={filterState} setFilterState={setFilterState} />
           <SearchResults
-            creators={creators}
+            creators={filteredCreators}
             error={error}
+            totalCreators={creators.length}
             isLoading={isLoading}
             hasSearched={hasSearched}
             searchCreators={() => searchCreators(query)}
             setSelectedCreator={setSelectedCreator}
           />
         </div>
-        <RecommendationPanel creator={selectedCreator} creators={creators} />
+        <RecommendationPanel creator={selectedCreator} creators={filteredCreators} />
       </section>
     </main>
   );
@@ -386,7 +472,27 @@ function SuggestionGroup({
   );
 }
 
-function FilterPanel() {
+function FilterPanel({
+  filterState,
+  setFilterState
+}: {
+  filterState: FilterState;
+  setFilterState: (value: FilterState | ((current: FilterState) => FilterState)) => void;
+}) {
+  const toggleFilter = (type: "regions" | "languages", value: string) => {
+    setFilterState((current) => {
+      const currentValues = current[type];
+      const nextValues = currentValues.includes(value)
+        ? currentValues.filter((item) => item !== value)
+        : [...currentValues, value];
+
+      return {
+        ...current,
+        [type]: nextValues
+      };
+    });
+  };
+
   return (
     <aside className="rounded-lg border border-white/10 bg-white p-5 shadow-card xl:sticky xl:top-8 xl:self-start">
       <div className="flex items-center justify-between border-b border-slate-200 pb-4">
@@ -398,13 +504,48 @@ function FilterPanel() {
       </div>
 
       <div className="thin-scrollbar mt-5 max-h-none space-y-6 overflow-auto xl:max-h-[720px]">
-        {Object.entries(filters).map(([label, options]) => (
-          <FilterGroup key={label} label={label} options={options} />
-        ))}
+        <FilterGroup
+          label="地区"
+          onToggle={(value) => toggleFilter("regions", value)}
+          options={filters.地区}
+          selectedOptions={filterState.regions}
+        />
+        <FilterGroup
+          label="语言"
+          onToggle={(value) => toggleFilter("languages", value)}
+          options={filters.语言}
+          selectedOptions={filterState.languages}
+        />
 
-        <RangeBlock label="粉丝量" value="10K - 10M" />
+        <RangeBlock
+          label="粉丝量"
+          max={10000000}
+          min={10000}
+          onChange={(value) =>
+            setFilterState((current) => ({
+              ...current,
+              minFollowers: value
+            }))
+          }
+          step={10000}
+          value={filterState.minFollowers}
+          valueLabel={`${formatCompactNumber(filterState.minFollowers)}+`}
+        />
         <RangeBlock label="互动率" value="3% - 12%" />
-        <RangeBlock label="平均播放" value="50K - 800K" />
+        <RangeBlock
+          label="平均播放"
+          max={800000}
+          min={50000}
+          onChange={(value) =>
+            setFilterState((current) => ({
+              ...current,
+              minAverageViews: value
+            }))
+          }
+          step={5000}
+          value={filterState.minAverageViews}
+          valueLabel={`${formatCompactNumber(filterState.minAverageViews)}+`}
+        />
 
         <div>
           <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -434,7 +575,17 @@ function FilterPanel() {
   );
 }
 
-function FilterGroup({ label, options }: { label: string; options: string[] }) {
+function FilterGroup({
+  label,
+  onToggle,
+  options,
+  selectedOptions
+}: {
+  label: string;
+  onToggle: (value: string) => void;
+  options: string[];
+  selectedOptions: string[];
+}) {
   const iconMap: Record<string, typeof Globe2> = {
     地区: Globe2,
     语言: Languages
@@ -453,7 +604,12 @@ function FilterGroup({ label, options }: { label: string; options: string[] }) {
             key={option}
             className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50"
           >
-            <input defaultChecked={index < 2} type="checkbox" className="size-4 accent-primary" />
+            <input
+              checked={selectedOptions.includes(option)}
+              onChange={() => onToggle(option)}
+              type="checkbox"
+              className="size-4 accent-primary"
+            />
             <span className="min-w-0 truncate">{option}</span>
           </label>
         ))}
@@ -462,14 +618,42 @@ function FilterGroup({ label, options }: { label: string; options: string[] }) {
   );
 }
 
-function RangeBlock({ label, value }: { label: string; value: string }) {
+function RangeBlock({
+  label,
+  max,
+  min,
+  onChange,
+  step = 1,
+  value,
+  valueLabel
+}: {
+  label: string;
+  max?: number;
+  min?: number;
+  onChange?: (value: number) => void;
+  step?: number;
+  value: number | string;
+  valueLabel?: string;
+}) {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-700">{label}</p>
-        <p className="text-xs font-semibold text-primary">{value}</p>
+        <p className="text-xs font-semibold text-primary">{valueLabel ?? value}</p>
       </div>
-      <input className="range-track w-full" type="range" min="0" max="100" defaultValue="72" />
+      {onChange ? (
+        <input
+          className="range-track w-full"
+          max={max ?? 100}
+          min={min ?? 0}
+          onChange={(event) => onChange(Number(event.target.value))}
+          step={step}
+          type="range"
+          value={typeof value === "number" ? value : 72}
+        />
+      ) : (
+        <input className="range-track w-full" type="range" min="0" max="100" defaultValue="72" />
+      )}
     </div>
   );
 }
@@ -480,7 +664,8 @@ function SearchResults({
   hasSearched,
   isLoading,
   searchCreators,
-  setSelectedCreator
+  setSelectedCreator,
+  totalCreators
 }: {
   creators: Creator[];
   error: string;
@@ -488,6 +673,7 @@ function SearchResults({
   isLoading: boolean;
   searchCreators: () => void;
   setSelectedCreator: (creator: Creator) => void;
+  totalCreators: number;
 }) {
   return (
     <section className="rounded-lg border border-white/10 bg-white p-5 shadow-card sm:p-6">
@@ -513,7 +699,7 @@ function SearchResults({
       <div className="mt-5 grid gap-4">
         {isLoading && <LoadingState />}
         {!isLoading && error && <ErrorState error={error} onRetry={searchCreators} />}
-        {!isLoading && !error && hasSearched && creators.length === 0 && <EmptyState />}
+        {!isLoading && !error && hasSearched && creators.length === 0 && <EmptyState hasRawResults={totalCreators > 0} />}
         {!isLoading &&
           !error &&
           creators.map((creator) => (
@@ -543,12 +729,16 @@ function LoadingState() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ hasRawResults }: { hasRawResults: boolean }) {
   return (
     <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
       <Search className="mx-auto size-9 text-slate-300" />
-      <h3 className="mt-4 text-lg font-semibold text-slate-950">没有找到匹配的 YouTube 频道</h3>
-      <p className="mt-2 text-sm text-slate-500">换一个游戏、地区或内容关键词再试一次。</p>
+      <h3 className="mt-4 text-lg font-semibold text-slate-950">
+        {hasRawResults ? "当前筛选条件下没有匹配频道" : "没有找到匹配的 YouTube 频道"}
+      </h3>
+      <p className="mt-2 text-sm text-slate-500">
+        {hasRawResults ? "放宽粉丝量、平均播放、地区或语言筛选后再试。" : "换一个游戏、地区或内容关键词再试一次。"}
+      </p>
     </div>
   );
 }
