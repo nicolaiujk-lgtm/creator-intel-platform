@@ -106,6 +106,14 @@ function getAverageViews(viewCount?: string, videoCount?: string) {
   return formatNumber(String(Math.round(views / videos)));
 }
 
+function extractEmails(text?: string) {
+  if (!text) return [];
+
+  return Array.from(
+    new Set(text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [])
+  );
+}
+
 export async function GET(request: Request) {
   const apiKey = process.env.YOUTUBE_API_KEY;
   const { searchParams } = new URL(request.url);
@@ -126,7 +134,7 @@ export async function GET(request: Request) {
     const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
     searchUrl.searchParams.set("part", "snippet");
     searchUrl.searchParams.set("type", "channel");
-    searchUrl.searchParams.set("maxResults", "25");
+    searchUrl.searchParams.set("maxResults", "50");
     searchUrl.searchParams.set("q", query);
     searchUrl.searchParams.set("key", apiKey);
 
@@ -189,6 +197,9 @@ export async function GET(request: Request) {
         channel.snippet?.defaultLanguage ?? channel.brandingSettings?.channel?.defaultLanguage
       );
 
+      const description = channel.snippet?.description ?? "";
+      const emails = extractEmails(description);
+
       return {
         channelTitle: channel.snippet?.title ?? "未命名频道",
         channelId: channel.id,
@@ -199,7 +210,9 @@ export async function GET(request: Request) {
           "",
         subscriberCount,
         subscriberCountRaw,
-        description: channel.snippet?.description ?? "",
+        description,
+        emails,
+        email: emails[0] ?? "未公开",
         channelUrl: `https://www.youtube.com/channel/${channel.id}`,
         averageViews: getAverageViews(channel.statistics?.viewCount, channel.statistics?.videoCount),
         averageViewsRaw,

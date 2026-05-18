@@ -43,6 +43,8 @@ type Creator = {
   avgViews: string;
   avgViewsCount: number | null;
   engagement: string;
+  email: string;
+  emails: string[];
   tags: string[];
   lastUpload: string;
   score: number;
@@ -63,6 +65,8 @@ type YouTubeCreatorResponse = {
   regionCode: string;
   language: string;
   languageCode: string;
+  email: string;
+  emails: string[];
 };
 
 type FilterState = {
@@ -144,6 +148,8 @@ function normalizeCreator(item: YouTubeCreatorResponse, query: string, index: nu
     avgViews: item.averageViews ?? "暂未提供",
     avgViewsCount: item.averageViewsRaw,
     engagement: "需接入分析",
+    email: item.email,
+    emails: item.emails,
     tags: inferTags(query, item.description),
     lastUpload: "来自 YouTube API",
     score: Math.max(82, 96 - index * 3),
@@ -157,7 +163,7 @@ function formatCompactNumber(value: number) {
 
 function matchesSelectedGroup(value: string, selected: string[], groups: Record<string, string[]>) {
   if (selected.length === 0) return true;
-  if (!value) return false;
+  if (!value) return true;
 
   return selected.some((item) => groups[item]?.includes(value));
 }
@@ -167,9 +173,9 @@ function filterCreators(creators: Creator[], filterState: FilterState) {
     const matchesRegion = matchesSelectedGroup(creator.regionCode, filterState.regions, regionCodeGroups);
     const matchesLanguage = matchesSelectedGroup(creator.languageCode, filterState.languages, languageCodeGroups);
     const matchesFollowers =
-      typeof creator.followersCount === "number" && creator.followersCount >= filterState.minFollowers;
+      typeof creator.followersCount !== "number" || creator.followersCount >= filterState.minFollowers;
     const matchesAverageViews =
-      typeof creator.avgViewsCount === "number" && creator.avgViewsCount >= filterState.minAverageViews;
+      typeof creator.avgViewsCount !== "number" || creator.avgViewsCount >= filterState.minAverageViews;
 
     return matchesRegion && matchesLanguage && matchesFollowers && matchesAverageViews;
   });
@@ -447,6 +453,7 @@ function FilterPanel({
       };
     });
   };
+  const clearFilters = () => setFilterState(defaultFilterState);
 
   return (
     <aside className="rounded-lg border border-white/10 bg-white p-5 shadow-card xl:sticky xl:top-8 xl:self-start">
@@ -455,7 +462,15 @@ function FilterPanel({
           <p className="text-sm font-semibold text-slate-950">筛选面板</p>
           <p className="mt-1 text-xs text-slate-500">按上线匹配度精准筛选博主</p>
         </div>
-        <Filter className="size-5 text-primary" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={clearFilters}
+            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:text-primary"
+          >
+            清空筛选
+          </button>
+          <Filter className="size-5 text-primary" />
+        </div>
       </div>
 
       <div className="thin-scrollbar mt-5 max-h-none space-y-6 overflow-auto xl:max-h-[720px]">
@@ -736,6 +751,9 @@ function CreatorCard({
               <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">{creator.flag}</span>
             </div>
             <p className="mt-1 truncate text-sm font-medium text-slate-500">{creator.handle}</p>
+            <p className="mt-2 text-sm font-medium text-slate-600">
+              邮箱：<span className={creator.email === "未公开" ? "text-slate-400" : "text-primary"}>{creator.email}</span>
+            </p>
             <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-slate-600">{creator.description}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {creator.tags.map((tag, index) => (
@@ -760,7 +778,7 @@ function CreatorCard({
           <div className="grid grid-cols-3 gap-2">
             <Metric label="粉丝量" value={creator.followers} />
             <Metric label="平均播放" value={creator.avgViews} />
-            <Metric label="互动率" value={creator.engagement} />
+            <Metric label="邮箱" value={creator.email === "未公开" ? "未公开" : "已识别"} />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-lg bg-slate-50 p-3">
