@@ -81,8 +81,6 @@ const navItems = [
   { label: "设置", icon: Settings }
 ];
 
-const suggestions = ["Roblox 巴西", "二次元移动游戏", "阿语游戏博主"];
-const trendingTags = ["Roblox", "移动游戏", "MMORPG", "沙盒", "模拟经营", "二次元游戏"];
 const filters = {
   地区: ["巴西", "美国", "欧洲"],
   语言: ["葡萄牙语", "西班牙语", "英语"]
@@ -91,8 +89,8 @@ const filters = {
 const defaultFilterState: FilterState = {
   regions: [],
   languages: [],
-  minFollowers: 10000,
-  minAverageViews: 50000
+  minFollowers: 1000,
+  minAverageViews: 300
 };
 
 const regionCodeGroups: Record<string, string[]> = {
@@ -345,11 +343,6 @@ function Hero({
   setQuery: (value: string) => void;
   setSelectedCreator: (creator: Creator) => void;
 }) {
-  const pickQuery = (item: string) => {
-    setQuery(item);
-    searchCreators(item);
-  };
-
   return (
     <section className="overflow-hidden rounded-none pt-20 lg:pt-0">
       <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
@@ -397,11 +390,6 @@ function Hero({
           </form>
 
           <p className="mt-3 text-sm font-medium text-slate-500">{resultSummary}</p>
-
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <SuggestionGroup title="搜索建议" items={suggestions} onPick={pickQuery} />
-            <SuggestionGroup title="热门标签" items={trendingTags} onPick={pickQuery} colorful />
-          </div>
         </div>
 
         <div className="rounded-lg border border-white/10 bg-white/[0.98] p-6 shadow-card">
@@ -436,39 +424,6 @@ function Hero({
         </div>
       </div>
     </section>
-  );
-}
-
-function SuggestionGroup({
-  title,
-  items,
-  onPick,
-  colorful = false
-}: {
-  title: string;
-  items: string[];
-  onPick: (item: string) => void;
-  colorful?: boolean;
-}) {
-  return (
-    <div>
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</p>
-      <div className="flex flex-wrap gap-2">
-        {items.map((item, index) => (
-          <button
-            key={item}
-            onClick={() => onPick(item)}
-            className={`rounded-md border px-3 py-2 text-sm font-medium transition hover:-translate-y-0.5 ${
-              colorful
-                ? ["border-emerald-200 bg-emerald-50 text-emerald-700", "border-amber-200 bg-amber-50 text-amber-700", "border-indigo-200 bg-indigo-50 text-indigo-700"][index % 3]
-                : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200"
-            }`}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -520,7 +475,7 @@ function FilterPanel({
         <RangeBlock
           label="粉丝量"
           max={10000000}
-          min={10000}
+          min={1000}
           onChange={(value) =>
             setFilterState((current) => ({
               ...current,
@@ -535,14 +490,14 @@ function FilterPanel({
         <RangeBlock
           label="平均播放"
           max={800000}
-          min={50000}
+          min={300}
           onChange={(value) =>
             setFilterState((current) => ({
               ...current,
               minAverageViews: value
             }))
           }
-          step={5000}
+          step={100}
           value={filterState.minAverageViews}
           valueLabel={`${formatCompactNumber(filterState.minAverageViews)}+`}
         />
